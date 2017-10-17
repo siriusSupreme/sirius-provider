@@ -2,8 +2,6 @@
 
 namespace Sirius\Provider;
 
-use function Sirius\Support\collect;
-
 class ServiceProvider implements \Sirius\Provider\Contracts\ServiceProvider
 {
     /**

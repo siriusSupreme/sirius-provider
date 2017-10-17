@@ -3,7 +3,7 @@
 namespace Illuminate\Foundation;
 
 use Exception;
-use Illuminate\Filesystem\Filesystem;
+use Sirius\Filesystem\Filesystem;
 use Illuminate\Contracts\Foundation\Application as ApplicationContract;
 
 class ProviderRepository

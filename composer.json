@@ -18,7 +18,9 @@
   "require": {
     "php": ">=7.0.0",
     "siriussupreme/sirius-container": "^1.0",
-    "siriussupreme/sirius-support": "^1.0"
+    "siriussupreme/sirius-filesystem": "^1.0",
+    "siriussupreme/sirius-support": "^1.0",
+    "symfony/http-kernel": "^3.3"
   },
   "require-dev": {
     "phpunit/phpunit": "^6.4"
