@@ -197,7 +197,7 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
     {
         $providers = Collection::make($this->config['app.providers'])
                         ->partition(function ($provider) {
-                            return Str::startsWith($provider, 'Illuminate\\');
+                            return Str::startsWith($provider, 'Sirius\\');
                         });
 
         $providers->splice(1, 0, [$this->make(PackageManifest::class)->providers()]);
