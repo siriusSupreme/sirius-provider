@@ -1,27 +1,23 @@
 <?php
 
-namespace Illuminate\Foundation;
+namespace Sirius\Provider;
 
 use Closure;
 use RuntimeException;
-use Sirius\Provider\AliasLoader;
-use Sirius\Provider\ServiceProvider;
-use Sirius\Support\Arr;
-use Sirius\Support\Str;
-use Sirius\Support\Collection;
 use Sirius\Container\Container;
 use Sirius\Filesystem\Filesystem;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
-use Symfony\Component\HttpKernel\Exception\HttpException;
-use Sirius\Provider\Contracts\Kernel as HttpKernelContract;
-use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Sirius\Provider\Contracts\Application as ApplicationContract;
+use Sirius\Provider\Contracts\Kernel as HttpKernelContract;
+use Sirius\Support\Arr;
+use Sirius\Support\Collection;
+use Sirius\Support\Str;
+use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 class Application extends Container implements ApplicationContract, HttpKernelInterface
 {
-
-
     /**
      * The base path for the Laravel installation.
      *
@@ -378,7 +374,7 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
      * @param  string  $abstract
      * @return bool
      */
-    public function bound($abstract)
+    public function bound($abstract):bool
     {
         return isset($this->deferredServices[$abstract]) || parent::bound($abstract);
     }
@@ -586,37 +582,6 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
     {
         AliasLoader::setFacadeNamespace($namespace);
     }
-
-    /**
-     * Determine if the application has a custom Monolog configurator.
-     *
-     * @return bool
-     */
-    public function hasMonologConfigurator()
-    {
-        return ! is_null($this->monologConfigurator);
-    }
-
-    /**
-     * Get the custom Monolog configurator for the application.
-     *
-     * @return callable
-     */
-    public function getMonologConfigurator()
-    {
-        return $this->monologConfigurator;
-    }
-
-    /**
-     * Get the current application locale.
-     *
-     * @return string
-     */
-    public function getLocale()
-    {
-        return $this['config']->get('app.locale');
-    }
-
 
     /**
      * Register the core class aliases in the container.

@@ -1,24 +1,24 @@
 <?php
 
-namespace Illuminate\Foundation;
+namespace Sirius\Provider;
 
 use Exception;
 use Sirius\Filesystem\Filesystem;
-use Illuminate\Contracts\Foundation\Application as ApplicationContract;
+use Sirius\Provider\Contracts\Application as ApplicationContract;
 
 class ProviderRepository
 {
     /**
      * The application implementation.
      *
-     * @var \Illuminate\Contracts\Foundation\Application
+     * @var \Sirius\Provider\Contracts\Application
      */
     protected $app;
 
     /**
      * The filesystem instance.
      *
-     * @var \Illuminate\Filesystem\Filesystem
+     * @var \Sirius\Filesystem\Filesystem
      */
     protected $files;
 
@@ -32,9 +32,10 @@ class ProviderRepository
     /**
      * Create a new service repository instance.
      *
-     * @param  \Illuminate\Contracts\Foundation\Application  $app
-     * @param  \Illuminate\Filesystem\Filesystem  $files
+     * @param  \Sirius\Provider\Contracts\Application $app
+     * @param  \Sirius\Filesystem\Filesystem  $files
      * @param  string  $manifestPath
+     *
      * @return void
      */
     public function __construct(ApplicationContract $app, Filesystem $files, $manifestPath)
@@ -201,7 +202,7 @@ class ProviderRepository
      * Create a new provider instance.
      *
      * @param  string  $provider
-     * @return \Illuminate\Support\ServiceProvider
+     * @return \Sirius\Provider\ServiceProvider
      */
     public function createProvider($provider)
     {
