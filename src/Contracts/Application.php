@@ -7,6 +7,34 @@ use Sirius\Container\Contracts\Container;
 interface Application extends Container
 {
     /**
+     * Get the base path of the Sirius installation.
+     *
+     * @return string
+     */
+    public function basePath();
+
+    /**
+     * Get or check the current application environment.
+     *
+     * @return string
+     */
+    public function environment();
+
+    /**
+     * Determine if we are running in the console.
+     *
+     * @return bool
+     */
+    public function runningInConsole();
+
+    /**
+     * Determine if the application is currently down for maintenance.
+     *
+     * @return bool
+     */
+    public function isDownForMaintenance();
+
+    /**
      * Register all of the configured providers.
      *
      * @return void
@@ -56,4 +84,17 @@ interface Application extends Container
      */
     public function booted($callback);
 
+    /**
+     * Get the path to the cached services.php file.
+     *
+     * @return string
+     */
+    public function getCachedServicesPath();
+
+    /**
+     * Get the path to the cached packages.php file.
+     *
+     * @return string
+     */
+    public function getCachedPackagesPath();
 }

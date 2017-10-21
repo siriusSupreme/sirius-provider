@@ -2,14 +2,17 @@
 
 namespace Sirius\Provider;
 
-class ServiceProvider implements \Sirius\Provider\Contracts\ServiceProvider
+use Illuminate\Console\Application as Artisan;
+use function Sirius\Support\collect;
+
+class ServiceProvider
 {
     /**
-     * The container instance.
+     * The application instance.
      *
-     * @var \Sirius\Container\Contracts\Container
+     * @var \Sirius\Provider\Contracts\Application
      */
-    protected $container;
+    protected $app;
 
     /**
      * Indicates if loading of the provider is deferred.
@@ -19,26 +22,216 @@ class ServiceProvider implements \Sirius\Provider\Contracts\ServiceProvider
     protected $defer = false;
 
     /**
+     * The paths that should be published.
+     *
+     * @var array
+     */
+    public static $publishes = [];
+
+    /**
+     * The paths that should be published by group.
+     *
+     * @var array
+     */
+    public static $publishGroups = [];
+
+    /**
      * Create a new service provider instance.
      *
-     * @param  \Sirius\Container\Contracts\Container $container
-     *
+     * @param  \Sirius\Provider\Contracts\Application  $app
      * @return void
      */
-    public function __construct($container)
+    public function __construct($app)
     {
-        $this->container = $container;
+        $this->app = $app;
     }
 
-    public function register() {
-      // TODO: Implement register() method.
+    /**
+     * Merge the given configuration with the existing configuration.
+     *
+     * @param  string  $path
+     * @param  string  $key
+     * @return void
+     */
+    protected function mergeConfigFrom($path, $key)
+    {
+        $config = $this->app['config']->get($key, []);
+
+        $this->app['config']->set($key, array_merge(require $path, $config));
     }
 
-    public function boot() {
-      // TODO: Implement boot() method.
+    /**
+     * Load the given routes file if routes are not already cached.
+     *
+     * @param  string  $path
+     * @return void
+     */
+    protected function loadRoutesFrom($path)
+    {
+        if (! $this->app->routesAreCached()) {
+            require $path;
+        }
     }
 
-  /**
+    /**
+     * Register a view file namespace.
+     *
+     * @param  string  $path
+     * @param  string  $namespace
+     * @return void
+     */
+    protected function loadViewsFrom($path, $namespace)
+    {
+        if (is_array($this->app->config['view']['paths'])) {
+            foreach ($this->app->config['view']['paths'] as $viewPath) {
+                if (is_dir($appPath = $viewPath.'/vendor/'.$namespace)) {
+                    $this->app['view']->addNamespace($namespace, $appPath);
+                }
+            }
+        }
+
+        $this->app['view']->addNamespace($namespace, $path);
+    }
+
+    /**
+     * Register paths to be published by the publish command.
+     *
+     * @param  array  $paths
+     * @param  string  $group
+     * @return void
+     */
+    protected function publishes(array $paths, $group = null)
+    {
+        $this->ensurePublishArrayInitialized($class = static::class);
+
+        static::$publishes[$class] = array_merge(static::$publishes[$class], $paths);
+
+        if ($group) {
+            $this->addPublishGroup($group, $paths);
+        }
+    }
+
+    /**
+     * Ensure the publish array for the service provider is initialized.
+     *
+     * @param  string  $class
+     * @return void
+     */
+    protected function ensurePublishArrayInitialized($class)
+    {
+        if (! array_key_exists($class, static::$publishes)) {
+            static::$publishes[$class] = [];
+        }
+    }
+
+    /**
+     * Add a publish group / tag to the service provider.
+     *
+     * @param  string  $group
+     * @param  array  $paths
+     * @return void
+     */
+    protected function addPublishGroup($group, $paths)
+    {
+        if (! array_key_exists($group, static::$publishGroups)) {
+            static::$publishGroups[$group] = [];
+        }
+
+        static::$publishGroups[$group] = array_merge(
+            static::$publishGroups[$group], $paths
+        );
+    }
+
+    /**
+     * Get the paths to publish.
+     *
+     * @param  string  $provider
+     * @param  string  $group
+     * @return array
+     */
+    public static function pathsToPublish($provider = null, $group = null)
+    {
+        if (! is_null($paths = static::pathsForProviderOrGroup($provider, $group))) {
+            return $paths;
+        }
+
+        return collect(static::$publishes)->reduce(function ($paths, $p) {
+            return array_merge($paths, $p);
+        }, []);
+    }
+
+    /**
+     * Get the paths for the provider or group (or both).
+     *
+     * @param  string|null  $provider
+     * @param  string|null  $group
+     * @return array
+     */
+    protected static function pathsForProviderOrGroup($provider, $group)
+    {
+        if ($provider && $group) {
+            return static::pathsForProviderAndGroup($provider, $group);
+        } elseif ($group && array_key_exists($group, static::$publishGroups)) {
+            return static::$publishGroups[$group];
+        } elseif ($provider && array_key_exists($provider, static::$publishes)) {
+            return static::$publishes[$provider];
+        } elseif ($group || $provider) {
+            return [];
+        }
+    }
+
+    /**
+     * Get the paths for the provider and group.
+     *
+     * @param  string  $provider
+     * @param  string  $group
+     * @return array
+     */
+    protected static function pathsForProviderAndGroup($provider, $group)
+    {
+        if (! empty(static::$publishes[$provider]) && ! empty(static::$publishGroups[$group])) {
+            return array_intersect_key(static::$publishes[$provider], static::$publishGroups[$group]);
+        }
+
+        return [];
+    }
+
+    /**
+     * Get the service providers available for publishing.
+     *
+     * @return array
+     */
+    public static function publishableProviders()
+    {
+        return array_keys(static::$publishes);
+    }
+
+    /**
+     * Get the groups available for publishing.
+     *
+     * @return array
+     */
+    public static function publishableGroups()
+    {
+        return array_keys(static::$publishGroups);
+    }
+
+    /**
+     * Register the package's custom Artisan commands.
+     *
+     * @param  array|mixed  $commands
+     * @return void
+     */
+    public function commands($commands)
+    {
+        $commands = is_array($commands) ? $commands : func_get_args();
+
+        Artisan::starting(function ($artisan) use ($commands) {
+            $artisan->resolveCommands($commands);
+        });
+    }
+
+    /**
      * Get the services provided by the provider.
      *
      * @return array

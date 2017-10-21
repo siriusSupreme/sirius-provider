@@ -4,22 +4,25 @@ namespace Sirius\Provider;
 
 use Closure;
 use RuntimeException;
+use Sirius\Support\Arr;
+use function Sirius\Support\data_get;
+use Sirius\Support\Str;
+use Sirius\Support\Collection;
 use Sirius\Container\Container;
 use Sirius\Filesystem\Filesystem;
-use Sirius\Provider\Contracts\Application as ApplicationContract;
-use Sirius\Provider\Contracts\Kernel as HttpKernelContract;
-use Sirius\Support\Arr;
-use Sirius\Support\Collection;
-use Sirius\Support\Str;
-use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
-use Symfony\Component\HttpKernel\Exception\HttpException;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Sirius\Provider\ServiceProvider;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Sirius\Provider\Contracts\Kernel as HttpKernelContract;
+use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Sirius\Provider\Contracts\Application as ApplicationContract;
 
 class Application extends Container implements ApplicationContract, HttpKernelInterface
 {
+
     /**
-     * The base path for the Laravel installation.
+     * The base path for the Sirius installation.
      *
      * @var string
      */
@@ -82,6 +85,13 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
     protected $deferredServices = [];
 
     /**
+     * A custom callback used to configure Monolog.
+     *
+     * @var callable|null
+     */
+    protected $monologConfigurator;
+
+    /**
      * The application namespace.
      *
      * @var string
@@ -89,13 +99,16 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
     protected $namespace;
 
     /**
-     * Create a new Illuminate application instance.
+     * Create a new Sirius application instance.
      *
      * @param  string|null  $basePath
      * @return void
      */
     public function __construct($basePath = null)
     {
+        if ($basePath) {
+            $this->setBasePath($basePath);
+        }
 
         $this->registerBaseBindings();
 
@@ -103,8 +116,6 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
 
         $this->registerCoreContainerAliases();
     }
-
-
 
     /**
      * Register the basic bindings into the container.
@@ -131,7 +142,11 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
      */
     protected function registerBaseServiceProviders()
     {
+        $this->register(new EventServiceProvider($this));
 
+        $this->register(new LogServiceProvider($this));
+
+        $this->register(new RoutingServiceProvider($this));
     }
 
     /**
@@ -151,6 +166,19 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
 
             $this['events']->fire('bootstrapped: '.$bootstrapper, [$this]);
         }
+    }
+
+    /**
+     * Register a callback to run after loading the environment.
+     *
+     * @param  \Closure  $callback
+     * @return void
+     */
+    public function afterLoadingEnvironment(Closure $callback)
+    {
+        return $this->afterBootstrapping(
+            LoadEnvironmentVariables::class, $callback
+        );
     }
 
     /**
@@ -187,6 +215,106 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
         return $this->hasBeenBootstrapped;
     }
 
+    /**
+     * Set the base path for the application.
+     *
+     * @param  string  $basePath
+     * @return $this
+     */
+    public function setBasePath($basePath)
+    {
+        $this->basePath = rtrim($basePath, '\/');
+
+        $this->bindPathsInContainer();
+
+        return $this;
+    }
+
+    /**
+     * Bind all of the application paths in the container.
+     *
+     * @return void
+     */
+    protected function bindPathsInContainer()
+    {
+        $this->instance('path.base', $this->basePath());
+    }
+
+    /**
+     * Get the base path of the Sirius installation.
+     *
+     * @param string $path Optionally, a path to append to the base path
+     * @return string
+     */
+    public function basePath($path = '')
+    {
+        return $this->basePath.($path ? DIRECTORY_SEPARATOR.$path : $path);
+    }
+
+    /**
+     * Get or check the current application environment.
+     *
+     * @return string|bool
+     */
+    public function environment()
+    {
+        if (func_num_args() > 0) {
+            $patterns = is_array(func_get_arg(0)) ? func_get_arg(0) : func_get_args();
+
+            foreach ($patterns as $pattern) {
+                if (Str::is($pattern, $this['env'])) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return $this['env'];
+    }
+
+    /**
+     * Determine if application is in local environment.
+     *
+     * @return bool
+     */
+    public function isLocal()
+    {
+        return $this['env'] == 'local';
+    }
+
+    /**
+     * Detect the application's current environment.
+     *
+     * @param  \Closure  $callback
+     * @return string
+     */
+    public function detectEnvironment(Closure $callback)
+    {
+        $args = $_SERVER['argv'] ?? null;
+
+        return $this['env'] = (new EnvironmentDetector)->detect($callback, $args);
+    }
+
+    /**
+     * Determine if we are running in the console.
+     *
+     * @return bool
+     */
+    public function runningInConsole()
+    {
+        return php_sapi_name() == 'cli' || php_sapi_name() == 'phpdbg';
+    }
+
+    /**
+     * Determine if we are running unit tests.
+     *
+     * @return bool
+     */
+    public function runningUnitTests()
+    {
+        return $this['env'] == 'testing';
+    }
 
     /**
      * Register all of the configured providers.
@@ -197,7 +325,7 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
     {
         $providers = Collection::make($this->config['app.providers'])
                         ->partition(function ($provider) {
-                            return Str::startsWith($provider, 'Sirius\\');
+                            return Str::startsWith($provider, 'Illuminate\\');
                         });
 
         $providers->splice(1, 0, [$this->make(PackageManifest::class)->providers()]);
@@ -212,6 +340,7 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
      * @param  \Sirius\Provider\ServiceProvider|string  $provider
      * @param  array  $options
      * @param  bool   $force
+     *
      * @return \Sirius\Provider\ServiceProvider
      */
     public function register($provider, $options = [], $force = false)
@@ -247,6 +376,7 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
      * Get the registered service provider instance if it exists.
      *
      * @param  \Sirius\Provider\ServiceProvider|string  $provider
+     *
      * @return \Sirius\Provider\ServiceProvider|null
      */
     public function getProvider($provider)
@@ -262,6 +392,7 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
      * Resolve a service provider instance from the class name.
      *
      * @param  string  $provider
+     *
      * @return \Sirius\Provider\ServiceProvider
      */
     public function resolveProvider($provider)
@@ -374,7 +505,7 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
      * @param  string  $abstract
      * @return bool
      */
-    public function bound($abstract):bool
+    public function bound($abstract)
     {
         return isset($this->deferredServices[$abstract]) || parent::bound($abstract);
     }
@@ -474,6 +605,86 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
         return $this[HttpKernelContract::class]->handle(Request::createFromBase($request));
     }
 
+    /**
+     * Determine if middleware has been disabled for the application.
+     *
+     * @return bool
+     */
+    public function shouldSkipMiddleware()
+    {
+        return $this->bound('middleware.disable') &&
+               $this->make('middleware.disable') === true;
+    }
+
+    /**
+     * Get the path to the cached services.php file.
+     *
+     * @return string
+     */
+    public function getCachedServicesPath()
+    {
+        return $this->bootstrapPath().'/cache/services.php';
+    }
+
+    /**
+     * Get the path to the cached packages.php file.
+     *
+     * @return string
+     */
+    public function getCachedPackagesPath()
+    {
+        return $this->bootstrapPath().'/cache/packages.php';
+    }
+
+    /**
+     * Determine if the application configuration is cached.
+     *
+     * @return bool
+     */
+    public function configurationIsCached()
+    {
+        return file_exists($this->getCachedConfigPath());
+    }
+
+    /**
+     * Get the path to the configuration cache file.
+     *
+     * @return string
+     */
+    public function getCachedConfigPath()
+    {
+        return $this->bootstrapPath().'/cache/config.php';
+    }
+
+    /**
+     * Determine if the application routes are cached.
+     *
+     * @return bool
+     */
+    public function routesAreCached()
+    {
+        return $this['files']->exists($this->getCachedRoutesPath());
+    }
+
+    /**
+     * Get the path to the routes cache file.
+     *
+     * @return string
+     */
+    public function getCachedRoutesPath()
+    {
+        return $this->bootstrapPath().'/cache/routes.php';
+    }
+
+    /**
+     * Determine if the application is currently down for maintenance.
+     *
+     * @return bool
+     */
+    public function isDownForMaintenance()
+    {
+        return file_exists($this->storagePath().'/framework/down');
+    }
 
     /**
      * Throw an HttpException with the given data.
@@ -584,13 +795,84 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
     }
 
     /**
+     * Define a callback to be used to configure Monolog.
+     *
+     * @param  callable  $callback
+     * @return $this
+     */
+    public function configureMonologUsing(callable $callback)
+    {
+        $this->monologConfigurator = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Determine if the application has a custom Monolog configurator.
+     *
+     * @return bool
+     */
+    public function hasMonologConfigurator()
+    {
+        return ! is_null($this->monologConfigurator);
+    }
+
+    /**
+     * Get the custom Monolog configurator for the application.
+     *
+     * @return callable
+     */
+    public function getMonologConfigurator()
+    {
+        return $this->monologConfigurator;
+    }
+
+    /**
+     * Get the current application locale.
+     *
+     * @return string
+     */
+    public function getLocale()
+    {
+        return $this['config']->get('app.locale');
+    }
+
+    /**
+     * Set the current application locale.
+     *
+     * @param  string  $locale
+     * @return void
+     */
+    public function setLocale($locale)
+    {
+        $this['config']->set('app.locale', $locale);
+
+        $this['translator']->setLocale($locale);
+
+        $this['events']->dispatch(new Events\LocaleUpdated($locale));
+    }
+
+    /**
+     * Determine if application locale is the given locale.
+     *
+     * @param  string  $locale
+     * @return bool
+     */
+    public function isLocale($locale)
+    {
+        return $this->getLocale() == $locale;
+    }
+
+    /**
      * Register the core class aliases in the container.
      *
      * @return void
      */
     public function registerCoreContainerAliases()
     {
-        foreach ([] as $key => $aliases) {
+        foreach ([
+            'app'                  => [\Sirius\Provider\Application::class, \Sirius\Container\Contracts\Container::class, \Sirius\Provider\Contracts\Application::class,  \Psr\Container\ContainerInterface::class],
+        ] as $key => $aliases) {
             foreach ($aliases as $alias) {
                 $this->alias($key, $alias);
             }
@@ -629,6 +911,16 @@ class Application extends Container implements ApplicationContract, HttpKernelIn
     {
         if (! is_null($this->namespace)) {
             return $this->namespace;
+        }
+
+        $composer = json_decode(file_get_contents(base_path('composer.json')), true);
+
+        foreach ((array) data_get($composer, 'autoload.psr-4') as $namespace => $path) {
+            foreach ((array) $path as $pathChoice) {
+                if (realpath(app_path()) == realpath(base_path().'/'.$pathChoice)) {
+                    return $this->namespace = $namespace;
+                }
+            }
         }
 
         throw new RuntimeException('Unable to detect application namespace.');
